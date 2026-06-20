@@ -1,0 +1,8 @@
+# Runtime
+anthropic>=0.40
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Test
+pytest>=8.0
+httpx>=0.27        # required by fastapi.testclient

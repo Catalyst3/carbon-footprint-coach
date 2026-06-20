@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EcoLens — your carbon-footprint coach</title>
+  <style>
+    /* High-contrast, system-font, no external requests (privacy + a11y). */
+    :root {
+      --bg: #0f1a14;
+      --panel: #16241c;
+      --text: #f2f5f3;
+      --muted: #b9c7bf;
+      --accent: #4ade80;
+      --user: #1e3a2c;
+      --bot: #1b2b22;
+      --focus: #ffd166;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f7f5; --panel: #ffffff; --text: #11221a; --muted: #4a5a52;
+        --accent: #15803d; --user: #d9f0e3; --bot: #eef3f0; --focus: #8a5a00;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: flex; flex-direction: column; min-height: 100vh;
+    }
+    /* Visible keyboard focus everywhere (WCAG 2.4.7). */
+    a:focus-visible, button:focus-visible, textarea:focus-visible {
+      outline: 3px solid var(--focus); outline-offset: 2px;
+    }
+    .skip-link {
+      position: absolute; left: -999px; top: 0; background: var(--accent);
+      color: #000; padding: .5rem 1rem; z-index: 10;
+    }
+    .skip-link:focus { left: 0; }
+    header { padding: 1rem 1.25rem; border-bottom: 1px solid #ffffff22; }
+    h1 { font-size: 1.15rem; margin: 0; }
+    header p { margin: .25rem 0 0; color: var(--muted); font-size: .9rem; }
+    main { flex: 1; width: min(720px, 100%); margin: 0 auto; padding: 1rem;
+           display: flex; flex-direction: column; }
+    #log {
+      flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem;
+      padding: .5rem; border: 1px solid #ffffff22; border-radius: 10px;
+      background: var(--panel); min-height: 50vh;
+    }
+    .msg { padding: .6rem .8rem; border-radius: 10px; max-width: 90%;
+           white-space: pre-wrap; }
+    .msg .who { display: block; font-size: .72rem; color: var(--muted);
+                margin-bottom: .15rem; text-transform: uppercase; letter-spacing: .04em; }
+    .from-user { background: var(--user); align-self: flex-end; }
+    .from-bot  { background: var(--bot);  align-self: flex-start; }
+    form { display: flex; gap: .5rem; margin-top: .75rem; }
+    label.visually-hidden {
+      position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+    }
+    textarea {
+      flex: 1; resize: vertical; min-height: 2.75rem; max-height: 8rem;
+      padding: .6rem .7rem; border-radius: 8px; border: 1px solid #ffffff33;
+      background: var(--panel); color: var(--text); font: inherit;
+    }
+    button {
+      padding: 0 1.1rem; border: 0; border-radius: 8px; cursor: pointer;
+      background: var(--accent); color: #06210f; font-weight: 700; font: inherit;
+    }
+    button[disabled] { opacity: .55; cursor: progress; }
+    .hint { color: var(--muted); font-size: .82rem; margin: .4rem 2px 0; }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#composer">Skip to message box</a>
+  <header>
+    <h1>🌱 EcoLens</h1>
+    <p>Tell me about your day — a trip, a meal, some shopping — and I'll estimate its footprint.</p>
+  </header>
+
+  <main>
+    <!-- role=log + aria-live: screen readers announce each new reply automatically. -->
+    <div id="log" role="log" aria-live="polite" aria-label="Conversation with EcoLens"></div>
+
+    <form id="composer" aria-label="Send a message to EcoLens">
+      <label class="visually-hidden" for="message">Describe a daily activity</label>
+      <textarea id="message" name="message" rows="1"
+                placeholder="e.g. 30-min Uber to work, burger for lunch, metro home"
+                autocomplete="off" required></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+    <p class="hint">Press Enter to send · Shift+Enter for a new line. Estimates are approximate.</p>
+  </main>
+
+  <script>
+    // Stable per-browser session id so EcoLens remembers the day's activities.
+    const KEY = "ecolens-session-id";
+    let sessionId = localStorage.getItem(KEY);
+    if (!sessionId) {
+      sessionId = "s-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2));
+      sessionId = sessionId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+      localStorage.setItem(KEY, sessionId);
+    }
+
+    const log = document.getElementById("log");
+    const form = document.getElementById("composer");
+    const input = document.getElementById("message");
+    const send = document.getElementById("send");
+
+    // Returns the body <span> so callers can stream text into it.
+    function addMessage(who, text) {
+      const wrap = document.createElement("div");
+      wrap.className = "msg " + (who === "You" ? "from-user" : "from-bot");
+      const label = document.createElement("span");
+      label.className = "who";
+      label.textContent = who;
+      const body = document.createElement("span");
+      body.textContent = text; // textContent — never innerHTML (XSS-safe).
+      wrap.append(label, body);
+      log.append(wrap);
+      log.scrollTop = log.scrollHeight;
+      return body;
+    }
+
+    addMessage("EcoLens", "Hi! What did you get up to today? Even a quick note works.");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage("You", text);
+      input.value = "";
+      send.disabled = true;
+      send.setAttribute("aria-busy", "true");
+      const bubble = addMessage("EcoLens", "…");
+      try {
+        const res = await fetch("/api/chat/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+        if (res.status === 429) { bubble.textContent = "You're sending messages a bit fast — give it a few seconds and try again."; return; }
+        if (!res.ok || !res.body) throw new Error("HTTP " + res.status);
+
+        // Stream tokens into the bubble as they arrive.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let acc = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          acc += decoder.decode(value, { stream: true });
+          bubble.textContent = acc;
+          log.scrollTop = log.scrollHeight;
+        }
+        if (!acc.trim()) bubble.textContent = "Hmm, I didn't catch that — mind rephrasing?";
+      } catch (err) {
+        bubble.textContent = "Sorry — I couldn't reach the server. Please try again.";
+      } finally {
+        send.disabled = false;
+        send.removeAttribute("aria-busy");
+        input.focus();
+      }
+    });
+
+    // Enter to send, Shift+Enter for newline.
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+  </script>
+</body>
+</html>

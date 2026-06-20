@@ -1,0 +1,15 @@
+# Render Blueprint — free tier, no credit card required.
+# Push this repo to GitHub, then: Render dashboard → New → Blueprint → pick the repo.
+services:
+  - type: web
+    name: ecolens
+    runtime: python
+    plan: free                      # $0/mo; instance sleeps after ~15 min idle
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false                 # set this secret in the dashboard, never in git
+      - key: ECOLENS_MODEL
+        value: claude-haiku-4-5     # cheapest model — see README cost notes
